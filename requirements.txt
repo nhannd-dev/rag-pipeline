@@ -1,0 +1,6 @@
+requests>=2.31
+beautifulsoup4>=4.12
+markdownify>=1.2
+python-dotenv>=1.0
+openai>=2.0
+tiktoken>=0.8
