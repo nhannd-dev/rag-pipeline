@@ -1,0 +1,10 @@
+.env
+.git
+.github
+.venv
+venv
+__pycache__
+.pytest_cache
+articles
+tests
+last_run.json

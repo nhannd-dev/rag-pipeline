@@ -1,0 +1,68 @@
+name: Daily KB sync
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: kb-sync
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: pytest -q
+
+  sync:
+    needs: test
+    # Pushes only run tests; the sync itself runs on the schedule or by hand.
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t kb-sync .
+
+      - name: Run job (scrape -> delta upload)
+        env:
+          API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          VECTOR_STORE_ID: ${{ vars.VECTOR_STORE_ID }}
+        run: |
+          mkdir -p out && chmod 777 out
+          docker run --rm \
+            -e API_KEY -e VECTOR_STORE_ID \
+            -e RUN_SUMMARY_PATH=/out/last_run.json \
+            -v "$PWD/out:/out" \
+            kb-sync main.py 2>&1 | tee out/job.log
+          exit "${PIPESTATUS[0]}"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Knowledge-base sync"
+            if [ -f out/last_run.json ]; then
+              echo '```json'; cat out/last_run.json; echo '```'
+            else
+              echo "No summary produced; see job.log."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload run artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: last-run-${{ github.run_id }}
+          path: out/
+          retention-days: 30
